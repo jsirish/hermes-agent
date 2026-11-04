@@ -77,6 +77,14 @@ def test_program_status_follows_the_screen_through_one_owner(monkeypatch):
     assert states() == ["state=idle"]
 
 
+def test_program_outcome_done_sends_no_reply_text():
+    from hermes_cli.cli_chat_turn_mixin import _program_outcome
+
+    assert _program_outcome({"completed": True, "final_response": "a long reply"}) == ("done", "")
+    assert _program_outcome({"interrupted": True}) == ("idle", "")
+    assert _program_outcome(None) is None
+
+
 def test_display_program_status_false_from_config_writes_nothing(monkeypatch):
     from tests.hermes_cli.test_cli_init import _make_cli
 

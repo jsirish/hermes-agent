@@ -23,16 +23,17 @@ from agent.i18n import t
 from hermes_cli.cli_agent_setup_mixin import _retire_agent
 
 
-def _program_outcome(result, response):
+def _program_outcome(result):
     """OSC 7501 (state, msg) for a finished turn. No result = the monitor gave up on a still-running
-    agent, so claim no outcome (None reads as idle); a cancelled turn is idle per the spec."""
+    agent, so claim no outcome (None reads as idle); a cancelled turn is idle per the spec. A done
+    report carries no msg: the reply is already on screen and may be arbitrarily long or sensitive."""
     if not result:
         return None
     if result.get("interrupted"):
         return ("idle", "")
     if result.get("failed"):
         return ("error", str(result.get("error") or ""))
-    return ("done", response)
+    return ("done", "")
 
 
 class CLIChatTurnMixin:
@@ -655,7 +656,7 @@ class CLIChatTurnMixin:
         except Exception:
             pass
 
-        self._program_turn_outcome = _program_outcome(turn.result, response)
+        self._program_turn_outcome = _program_outcome(turn.result)
         self._sync_program_status()
         self._ring_bell(context=t("cli.modal.bell_turn_complete"))  # propagates over SSH
         if turn.result and not turn.result.get("completed") and not turn.result.get("interrupted"):
