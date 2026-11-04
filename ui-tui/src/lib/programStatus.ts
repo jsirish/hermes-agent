@@ -5,6 +5,7 @@ import type { ConnectionOperationTarget } from '@hermes/shared/gateway-events'
 import { atom } from 'nanostores'
 
 import type { OverlayState } from '../app/interfaces.js'
+import { PROMPT_KEYS } from '../app/overlayStore.js'
 
 export type ProgramState = 'blocked' | 'done' | 'error' | 'idle' | 'working'
 export type BlockedKind = 'auth' | 'permission' | 'question'
@@ -50,15 +51,23 @@ export function encodeProgramStatus(state: ProgramState, kind?: BlockedKind, msg
   return `\x1b]7501;${pairs.join(':')}\x1b\\`
 }
 
-const BLOCKING: readonly [keyof OverlayState, BlockedKind][] = [
-  ['approval', 'permission'],
-  ['clarify', 'question'],
-  ['sudo', 'auth'],
-  ['secret', 'auth'],
-  ['vaultUnlock', 'auth'],
-  ['vaultCode', 'auth'],
-  ['vaultSaveLogin', 'auth']
-]
+// Every prompt the overlay store lists in PROMPT_KEYS (approval, clarify, confirm, the credential
+// prompts) blocks on the user. Typed as a Record so a prompt added to PROMPT_KEYS without a kind here
+// fails tsc instead of silently never reporting `blocked`. `connection` is handled separately below.
+type PlainPromptKey = Exclude<(typeof PROMPT_KEYS)[number], 'connection'>
+
+const PROMPT_KIND: Record<PlainPromptKey, BlockedKind> = {
+  approval: 'permission',
+  clarify: 'question',
+  confirm: 'permission',
+  secret: 'auth',
+  sudo: 'auth',
+  vaultCode: 'auth',
+  vaultSaveLogin: 'auth',
+  vaultUnlock: 'auth'
+}
+
+const BLOCKING = PROMPT_KEYS.filter((key): key is PlainPromptKey => key !== 'connection')
 
 const RESOLVED = new Set(['connected', 'not_connected', 'skipped'])
 
@@ -75,12 +84,14 @@ export function deriveProgramStatus(
   outcome: TurnOutcome,
   connectionTargets?: readonly ConnectionOperationTarget[]
 ): { kind?: BlockedKind; state: ProgramState } {
-  const blocked =
-    BLOCKING.find(([key]) => Boolean(overlay[key])) ??
-    (overlay.connection && connectionNeedsUser(connectionTargets) ? (['connection', 'auth'] as const) : undefined)
+  const prompt = BLOCKING.find(key => Boolean(overlay[key]))
 
-  if (blocked) {
-    return { kind: blocked[1], state: 'blocked' }
+  if (prompt) {
+    return { kind: PROMPT_KIND[prompt], state: 'blocked' }
+  }
+
+  if (overlay.connection && connectionNeedsUser(connectionTargets)) {
+    return { kind: 'auth', state: 'blocked' }
   }
 
   if (busy) {

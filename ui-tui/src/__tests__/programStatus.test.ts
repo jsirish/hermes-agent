@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { getOverlayState, patchOverlayState, resetOverlayState } from '../app/overlayStore.js'
+import { getOverlayState, patchOverlayState, PROMPT_KEYS, resetOverlayState } from '../app/overlayStore.js'
 import { completionOutcome, deriveProgramStatus, encodeProgramStatus } from '../lib/programStatus.js'
-import type { ApprovalReq } from '../types.js'
+import type { ApprovalReq, ConfirmReq } from '../types.js'
 
 const decode = (seq: string) => {
   const msg = /:msg=([A-Za-z0-9+/=]+)/.exec(seq)?.[1]
@@ -22,6 +22,11 @@ describe('OSC 7501 program status', () => {
     expect(encodeProgramStatus('working', 'permission')).toBe('\x1b]7501;state=working:app=hermes\x1b\\')
   })
 
+  it('failed with a partial reply reads done; failed with none reads error (the CLI uses the same rule)', () => {
+    expect(completionOutcome(false, { partial: true, status: 'error' })).toBe('done')
+    expect(completionOutcome(false, { status: 'error' })).toBe('error')
+  })
+
   it('a prompt outranks busy, and an answered prompt falls back to working, then the turn outcome', () => {
     patchOverlayState({ approval: { command: 'rm -rf build' } as ApprovalReq })
     expect(deriveProgramStatus(true, getOverlayState(), null)).toEqual({ kind: 'permission', state: 'blocked' })
@@ -30,6 +35,18 @@ describe('OSC 7501 program status', () => {
     expect(deriveProgramStatus(true, getOverlayState(), null)).toEqual({ state: 'working' })
     expect(deriveProgramStatus(false, getOverlayState(), 'error')).toEqual({ state: 'error' })
     expect(deriveProgramStatus(false, getOverlayState(), null)).toEqual({ state: 'idle' })
+  })
+
+  it('a confirm overlay blocks on the user, and every PROMPT_KEYS prompt maps to a kind', () => {
+    patchOverlayState({ confirm: { title: 'Delete?' } as ConfirmReq })
+    expect(deriveProgramStatus(false, getOverlayState(), null)).toEqual({ kind: 'permission', state: 'blocked' })
+    expect(deriveProgramStatus(true, getOverlayState(), null)).toEqual({ kind: 'permission', state: 'blocked' })
+
+    for (const key of PROMPT_KEYS.filter(k => k !== 'connection')) {
+      resetOverlayState()
+      patchOverlayState({ [key]: { __probe: true } } as never)
+      expect(deriveProgramStatus(false, getOverlayState(), null).state, key).toBe('blocked')
+    }
   })
 
   it('a connection card blocks only while a row waits on the user; backend interrupts read idle', () => {
