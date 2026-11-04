@@ -31,7 +31,8 @@ def _program_outcome(result):
         return None
     if result.get("interrupted"):
         return ("idle", "")
-    if result.get("failed"):
+    # A failed turn that still produced a partial reply reads done, as in the Ink TUI (completionOutcome).
+    if result.get("failed") and not result.get("partial"):
         return ("error", str(result.get("error") or ""))
     return ("done", "")
 
