@@ -55,8 +55,10 @@ def program_status_sequence(state: str, *, kind: str = "", message: str = "") ->
     """Encode one OSC 7501 Program Status Protocol report for Hermes' root record."""
     if state not in _PROGRAM_STATES:
         raise ValueError(f"unsupported program status state: {state}")
+    # Drop a kind that does not apply instead of raising, as the Ink TUI encoder does: a report
+    # with a bad kind should still say what state the program is in.
     if kind and (state != "blocked" or kind not in _PROGRAM_KINDS):
-        raise ValueError(f"unsupported program status kind: {kind}")
+        kind = ""
     pairs = [f"state={state}", "app=hermes"]
     if kind:
         pairs.append(f"kind={kind}")

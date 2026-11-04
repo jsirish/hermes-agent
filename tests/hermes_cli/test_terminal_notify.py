@@ -40,11 +40,12 @@ def test_program_status_uses_st_and_encodes_safe_message():
     assert seq == "\x1b]7501;state=blocked:app=hermes:kind=permission:msg=QWxsb3cgY29tbWFuZD8geA==\x1b\\"
 
 
-def test_program_status_rejects_invalid_state_or_kind():
+def test_program_status_rejects_invalid_state_and_drops_bad_kind():
     with pytest.raises(ValueError):
         terminal_notify.program_status_sequence("clear")
-    with pytest.raises(ValueError):
-        terminal_notify.program_status_sequence("working", kind="permission")
+    # An inapplicable or unknown kind is dropped, not raised (parity with the TUI encoder).
+    assert terminal_notify.program_status_sequence("working", kind="permission") == "\x1b]7501;state=working:app=hermes\x1b\\"
+    assert terminal_notify.program_status_sequence("blocked", kind="bogus") == "\x1b]7501;state=blocked:app=hermes\x1b\\"
 
 
 def test_program_status_follows_the_screen_through_one_owner(monkeypatch):
@@ -90,6 +91,19 @@ def test_program_outcome_failed_and_partial_reads_done_like_the_tui():
 
     assert _program_outcome({"failed": True, "partial": True, "error": "x"}) == ("done", "")
     assert _program_outcome({"failed": True, "error": "boom"}) == ("error", "boom")
+
+
+def test_program_status_retries_after_a_report_that_could_not_be_sent(monkeypatch):
+    written = []
+    monkeypatch.setattr(terminal_notify, "write_tty", written.append)
+    cli = HermesCLI.__new__(HermesCLI)
+    cli.program_status_enabled, cli._agent_running = True, True
+    monkeypatch.setattr("sys.stdout.isatty", lambda: False)
+    cli._sync_program_status()
+    assert written == []
+    monkeypatch.setattr("sys.stdout.isatty", lambda: True)
+    cli._sync_program_status()
+    assert len(written) == 1 and "state=working" in written[0]
 
 
 def test_display_program_status_false_from_config_writes_nothing(monkeypatch):

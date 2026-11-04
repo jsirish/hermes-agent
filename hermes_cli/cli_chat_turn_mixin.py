@@ -45,21 +45,22 @@ class CLIChatTurnMixin:
     # process exit code (see cli._run_single_query_mode) read this instead.
     _last_turn_result = None
 
-    def _report_program_status(self, state: str, *, kind: str = "", message: str = "") -> None:
-        """OSC 7501 Program Status report (idle/working/blocked/done/error) on an interactive terminal only."""
+    def _report_program_status(self, state: str, *, kind: str = "", message: str = "") -> bool:
+        """OSC 7501 Program Status report (idle/working/blocked/done/error) on an interactive terminal only.
+        Returns True when the report was written or queued, False when nothing could be sent."""
         if not getattr(self, "program_status_enabled", True) or getattr(self, "_terminal_io_broken", False):
-            return
+            return False
         if not sys.stdout.isatty():
-            return
+            return False
         from hermes_cli.terminal_notify import program_status_sequence, write_tty
         try:
             seq = program_status_sequence(state, kind=kind, message=message)
         except (TypeError, ValueError, UnicodeError):
-            return
+            return False
         app = getattr(self, "_app", None)
         if app is None or not getattr(app, "_is_running", False):
             write_tty(seq)
-            return
+            return True
         from hermes_cli.cli_terminal_mixin import _run_on_app_loop, _write_terminal_sequence
 
         def _emit() -> None:
@@ -69,6 +70,7 @@ class CLIChatTurnMixin:
                 pass
 
         _run_on_app_loop(app, _emit)
+        return True
 
     # (state, msg) of the last finished turn; None = no outcome to show (fresh, early return, lost result).
     _program_turn_outcome = None
@@ -102,9 +104,9 @@ class CLIChatTurnMixin:
         else:
             state, message = self._program_turn_outcome or ("idle", "")
             key = (state, "", message)
-        if key != self._program_status_last:
+        if key != self._program_status_last and self._report_program_status(key[0], kind=key[1], message=key[2]):
+            # Latch only after the report went out, so a transient failure is retried on the next sync.
             self._program_status_last = key
-            self._report_program_status(key[0], kind=key[1], message=key[2])
 
     def _sync_fallback_chain_with_config(self, agent) -> None:
         """Adopt ``fallback_providers`` edits made while this chat is open (#95066) — the same
